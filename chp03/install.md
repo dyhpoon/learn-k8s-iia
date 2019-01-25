@@ -108,10 +108,76 @@ spec:
       perTryTimeout: 2s
 ```
 ```
-kubectl create -f <(istioctl kube-inject -f ./catalog-service/catalog-svc-v2.yaml)
+kubectl apply -f <(istioctl kube-inject -f ./catalog-service/catalog-svc-v2.yaml)
 ```
 
 # simulate intermittent failures again, you should see a much stable network connections
 ```
 while true; do curl $URL/api/products -H "failure-percentage: 50"; sleep .5; done
+```
+
+# now let's deploy a second version of catalog service
+```
+kubectl create -f <(istioctl kube-inject -f ./catalog-service/catalog-v2-deployment.yaml)
+```
+
+# then create a destination rule
+```
+kubectl create -f ./catalog-service/catalog-destinationrule.yaml
+```
+
+# next, we will create a rule in the catalog virtualService
+```yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: catalog
+spec:
+  hosts:
+  - catalog
+  http:
+  - route:
+    - destination:
+        host: catalog
+        subset: version-v1
+``` 
+```
+kubectl apply -f <(istioctl kube-inject -f ./catalog-service/catalog-svc-v3.yaml)
+```
+
+# now, lets send some traffic, and you should see responses from v1
+```
+while true; do curl $URL/api/products; sleep .5; done
+```
+
+# if we want to get responses from v2 by matching on a header called `x-dark-launch`
+```yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: catalog
+spec:
+  hosts:
+  - catalog
+  http:
+  - match:
+    - headers:
+        x-dark-launch:
+          exact: "v2"
+    route:
+    - destination:
+        host: catalog
+        subset: version-v2
+  - route:
+    - destination:
+        host: catalog
+        subset: version-v1
+```
+```
+kubectl apply -f <(istioctl kube-inject -f ./catalog-service/catalog-svc-v4.yaml)
+```
+
+# should get v2 response if you send a request with matching header
+```
+curl $URL/api/products -H "x-dark-launch: v2"
 ```
